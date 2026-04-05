@@ -46,6 +46,7 @@ class QsjAuth
      */
     public function requireAuth(): array
     {
+        unset($_SESSION['_qsj_not_logged_in']);
         if ($user = $this->resolveUser()) {
             return $user;
         }
@@ -140,6 +141,7 @@ class QsjAuth
             $user = $this->validateTicket((string)$_GET['qsj_ticket']);
             if ($user !== null) {
                 $this->storeLocalSession($user);
+                unset($_SESSION['_qsj_not_logged_in']);
                 // Strip ticket from URL and redirect (clean URL)
                 header('Location: ' . $this->currentUrlWithout('qsj_ticket'));
                 exit;
@@ -150,12 +152,13 @@ class QsjAuth
         // QSJ silent check already ran and confirmed: not logged in
         //    Clean the flag from the URL and return null.
         if (isset($_GET['qsj_not_logged_in'])) {
+            $_SESSION['_qsj_not_logged_in'] = true;
             header('Location: ' . $this->currentUrlWithout('qsj_not_logged_in'));
             exit;
         }
 
         // Force a silent check against QSJ (one redirect round-trip, no login form)
-        if ($force) {
+        if ($force && !isset($_SESSION['_qsj_not_logged_in'])) {
             $this->redirectToSilentCheck();
         }
 
