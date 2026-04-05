@@ -9,6 +9,7 @@ class QsjAuth
     private string $qsjLogin;
     private string $qsjLogout;
     private string $qsjValidate;
+    private string $qsjSilentCheck;
     private int    $localSessionTtl;
 
     /**
@@ -24,6 +25,7 @@ class QsjAuth
         $this->qsjLogin        = $base . '/login';
         $this->qsjLogout       = $base . '/logout';
         $this->qsjValidate     = $base . '/validate';
+        $this->qsjSilentCheck  = $base . '/silent_check.php';
         $this->localSessionTtl = $config['local_session_ttl'] ?? 3600;
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -51,19 +53,37 @@ class QsjAuth
     }
 
     /**
-     * Check auth without redirecting. Returns user array or null.
+     * Check auth without redirecting to the login form. Returns user array or null.
+     *
+     * @param bool $force  When true, performs a silent round-trip to the QSJ server
+     *                     to check whether a global session/remember-me cookie exists,
+     *                     even if no local session is present. Useful for pages that are
+     *                     public but want to greet a logged-in user.
+     *
+     *                     Flow when $force = true and no local session:
+     *                       1. Browser is redirected to qsj.magictintin.fr/silent_check
+     *                       2. QSJ checks its own session / remember-me cookie silently
+     *                       3a. If logged in -> redirected back with ?qsj_ticket=...
+     *                       3b. If not       -> redirected back with ?qsj_not_logged_in=1
+     *                     On the second page load the result is known and no further
+     *                     redirect is made.
+     *
+     *                     ⚠ This causes one extra redirect per cold visit.
+     *                       Do not use on every page if most visitors are anonymous.
      */
-    public function getUser(): ?array
+    public function getUser(bool $force = false): ?array
     {
-        return $this->resolveUser();
+        return $this->resolveUser($force);
     }
 
     /**
-     * Returns true if a valid local session (or a fresh ticket) exists.
+     * Returns true if a valid session (local or, with $force, global) exists.
+     *
+     * @param bool $force  See getUser() - same silent-check behaviour.
      */
-    public function isAuthenticated(): bool
+    public function isAuthenticated(bool $force = false): bool
     {
-        return $this->resolveUser() !== null;
+        return $this->resolveUser($force) !== null;
     }
 
     /**
@@ -101,29 +121,45 @@ class QsjAuth
     // Internal
 
     /**
-     * Core resolution: check local session -> validate ticket -> return user or null.
-     * Side-effect: consumes ticket from URL and redirects to clean URL.
+     * Core resolution:
+     *   1. Valid local session               -> return user immediately
+     *   2. Incoming qsj_ticket in URL        -> validate, store, clean URL, redirect
+     *   3. qsj_not_logged_in flag in URL     -> clean URL, return null (force check done)
+     *   4. $force = true, none of the above  -> redirect to silent_check.php (one bounce)
+     *   5. Otherwise                         -> return null
      */
-    private function resolveUser(): ?array
+    private function resolveUser(bool $force = false): ?array
     {
-        // Valid local session?
+        // Valid local session - fast path, no network call needed
         if ($this->hasValidLocalSession()) {
             return $_SESSION['_qsj_user'];
         }
 
-        // Incoming ticket from Qui suis-je ?
+        // QSJ ticket (from login.php OR silent_check.php)
         if (isset($_GET['qsj_ticket'])) {
-            $ticket = (string)$_GET['qsj_ticket'];
-            $user   = $this->validateTicket($ticket);
+            $user = $this->validateTicket((string)$_GET['qsj_ticket']);
             if ($user !== null) {
                 $this->storeLocalSession($user);
                 // Strip ticket from URL and redirect (clean URL)
                 header('Location: ' . $this->currentUrlWithout('qsj_ticket'));
                 exit;
             }
-            // Invalid ticket - fall through to treat as unauthenticated
+            // Invalid / expired ticket -> fall through as unauthenticated
         }
 
+        // QSJ silent check already ran and confirmed: not logged in
+        //    Clean the flag from the URL and return null.
+        if (isset($_GET['qsj_not_logged_in'])) {
+            header('Location: ' . $this->currentUrlWithout('qsj_not_logged_in'));
+            exit;
+        }
+
+        // Force a silent check against QSJ (one redirect round-trip, no login form)
+        if ($force) {
+            $this->redirectToSilentCheck();
+        }
+
+        // No session, no force - definitively unauthenticated
         return null;
     }
 
@@ -170,6 +206,12 @@ class QsjAuth
     private function redirectToQuisuisje(): never
     {
         header('Location: ' . $this->qsjLogin . '?from=' . urlencode($this->currentUrl()));
+        exit;
+    }
+
+    private function redirectToSilentCheck(): never
+    {
+        header('Location: ' . $this->qsjSilentCheck . '?from=' . urlencode($this->currentUrl()));
         exit;
     }
 

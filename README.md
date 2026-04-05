@@ -40,7 +40,7 @@ echo "Hello, " . htmlspecialchars($user['username']);
 require_once __DIR__ . '/qsj/auth.php';
 
 $qsj  = new QsjAuth(require __DIR__ . '/qsj-config.php');
-$user = $qsj->getUser(); // null if not logged in
+$user = $qsj->getUser(); // null if not logged in - use $force=true to ensure he is not logged in on the QSJ server
 
 if ($user) {
     echo "Logged in as " . $user['username'];
