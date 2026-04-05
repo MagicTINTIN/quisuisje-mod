@@ -25,7 +25,7 @@ class QsjAuth
         $this->qsjLogin        = $base . '/login';
         $this->qsjLogout       = $base . '/logout';
         $this->qsjValidate     = $base . '/validate';
-        $this->qsjSilentCheck  = $base . '/silent_check.php';
+        $this->qsjSilentCheck  = $base . '/silent_check';
         $this->localSessionTtl = $config['local_session_ttl'] ?? 3600;
 
         if (session_status() === PHP_SESSION_NONE) {
