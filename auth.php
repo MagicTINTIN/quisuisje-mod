@@ -119,6 +119,57 @@ class QsjAuth
         return $this->qsjLogin . '?from=' . urlencode($from);
     }
 
+    private function isNonInteractiveBrowser(): bool
+    {
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+
+        // No UA at all - likely a raw bot/tool
+        if ($ua === '') return true;
+
+        // Cloudflare header for verified bots (free plan included)
+        // verified when CF recognizes a "good" bot (Googlebot, Bingbot, etc.)
+        if (($_SERVER['HTTP_CF_IS_BOT'] ?? '') === 'verified') return true;
+
+        // User-Agent pattern matching as fallback (covers social embeds, scrapers, etc.)
+        $patterns = [
+            // Search engines
+            'Googlebot',
+            'bingbot',
+            'Slurp',
+            'DuckDuckBot',
+            'Baiduspider',
+            'YandexBot',
+            'Sogou',
+            'Exabot',
+            'facebot',
+            'ia_archiver',
+            // Social / embed fetchers
+            'Twitterbot',
+            'Discordbot',
+            'LinkedInBot',
+            'WhatsApp',
+            'Slackbot',
+            'TelegramBot',
+            'FacebookExternalHit',
+            'Pinterest',
+            // Generic bot signals
+            'bot',
+            'crawl',
+            'spider',
+            'scrape',
+            'preview',
+            'fetch',
+            'curl',
+            'wget',
+            'python-requests',
+            'axios',
+            'Go-http-client',
+        ];
+
+        $pattern = '/' . implode('|', array_map('preg_quote', $patterns)) . '/i';
+        return (bool) preg_match($pattern, $ua);
+    }
+
     // Internal
 
     /**
@@ -158,7 +209,7 @@ class QsjAuth
         }
 
         // Force a silent check against QSJ (one redirect round-trip, no login form)
-        if ($force && !isset($_SESSION['_qsj_not_logged_in'])) {
+        if ($force && !isset($_SESSION['_qsj_not_logged_in']) &&  !$this->isNonInteractiveBrowser()) {
             $this->redirectToSilentCheck();
         }
 
