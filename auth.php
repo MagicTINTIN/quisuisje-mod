@@ -119,7 +119,7 @@ class QsjAuth
         return $this->qsjLogin . '?from=' . urlencode($from);
     }
 
-    private function isNonInteractiveBrowser(): bool
+    public function isNonInteractiveBrowser(): bool
     {
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
