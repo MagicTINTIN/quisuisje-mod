@@ -28,10 +28,19 @@ class QsjAuth
         $this->qsjSilentCheck  = $base . '/silent_check';
         $this->localSessionTtl = $config['local_session_ttl'] ?? 3600;
 
+        // Sites that call session_start() themselves must set these flags on their side
         if (session_status() === PHP_SESSION_NONE) {
             if (isset($config['session_name'])) {
                 session_name($config['session_name']);
             }
+            ini_set('session.use_strict_mode', '1');
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path'     => '/',
+                'secure'   => $this->isHttps(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
             session_start();
         }
     }
@@ -190,8 +199,7 @@ class QsjAuth
         // QSJ ticket (from login.php OR silent_check.php)
         if (isset($_GET['qsj_ticket'])) {
             $user = $this->validateTicket((string)$_GET['qsj_ticket']);
-            if ($user !== null) {
-                $this->storeLocalSession($user);
+            if ($user !== null && $this->storeLocalSession($user)) {
                 unset($_SESSION['_qsj_not_logged_in']);
                 // Strip ticket from URL and redirect (clean URL)
                 header('Location: ' . $this->currentUrlWithout('qsj_ticket'));
@@ -224,10 +232,14 @@ class QsjAuth
             && $_SESSION['_qsj_expires'] > time();
     }
 
-    private function storeLocalSession(array $user): void
+    private function storeLocalSession(array $user): bool
     {
+        // New session id on login, so a planted (fixated) id never becomes authenticated
+        if (!session_regenerate_id(true)) return false;
+
         $_SESSION['_qsj_user']    = $user;
         $_SESSION['_qsj_expires'] = time() + $this->localSessionTtl;
+        return true;
     }
 
     private function clearLocalSession(): void
@@ -237,10 +249,12 @@ class QsjAuth
 
     /**
      * Call Qui suis-je ? validate endpoint server-to-server and return user array or null.
+     * The service lets QSJ refuse tickets that were issued for another site.
      */
     private function validateTicket(string $ticket): ?array
     {
-        $url = $this->qsjValidate . '?ticket=' . urlencode($ticket);
+        $url = $this->qsjValidate . '?ticket=' . urlencode($ticket)
+             . '&service=' . urlencode($this->currentUrlWithout('qsj_ticket'));
 
         $ctx  = stream_context_create(['http' => [
             'timeout'     => 5,
@@ -269,9 +283,19 @@ class QsjAuth
         exit;
     }
 
+    /**
+     * Scheme seen by the browser. Behind Cloudflare "Flexible" SSL the origin is
+     * reached over http, so X-Forwarded-Proto is checked too.
+     */
+    private function isHttps(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+    }
+
     private function currentUrl(): string
     {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $scheme = $this->isHttps() ? 'https' : 'http';
         return $scheme . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
     }
 

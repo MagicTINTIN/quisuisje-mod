@@ -98,6 +98,16 @@ they are re-authenticated transparently with no login prompt.
   Local sessions on other sites will expire naturally within their TTL window.
   Set a short TTL (e.g. 300 s) if near-instant cross-site logout is important.
 
+## Sessions
+
+If the module starts the PHP session (no `session_start()` before `new QsjAuth`),
+it sets `HttpOnly`, `SameSite=Lax`, `Secure` (on https) and `session.use_strict_mode`.
+If your site starts the session itself, set those before its own `session_start()`.
+The session id is regenerated on every login.
+
+Tickets are bound to the site they were issued for: the module sends its own URL as
+`service` when validating, and QSJ refuses tickets issued for another origin.
+
 ## Requirements
 
 - PHP 8.1+
