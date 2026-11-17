@@ -184,6 +184,7 @@ class QsjAuth
     /**
      * Core resolution:
      *   1. Valid local session               -> return user immediately
+     *      (non-GET: also a session expired less than one TTL ago, see below)
      *   2. Incoming qsj_ticket in URL        -> validate, store, clean URL, redirect
      *   3. qsj_not_logged_in flag in URL     -> clean URL, return null (force check done)
      *   4. $force = true, none of the above  -> redirect to silent_check.php (one bounce)
@@ -193,6 +194,12 @@ class QsjAuth
     {
         // Valid local session - fast path, no network call needed
         if ($this->hasValidLocalSession()) {
+            return $_SESSION['_qsj_user'];
+        }
+
+        // Never bounce a form submission through QSJ (the POST body would be lost):
+        // a session that expired less than one TTL ago is still accepted for non-GET requests
+        if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true) && $this->hasRecentLocalSession()) {
             return $_SESSION['_qsj_user'];
         }
 
@@ -211,6 +218,7 @@ class QsjAuth
         // QSJ silent check already ran and confirmed: not logged in
         //    Clean the flag from the URL and return null.
         if (isset($_GET['qsj_not_logged_in'])) {
+            $this->clearLocalSession(); // the expired user must not get the POST grace either
             $_SESSION['_qsj_not_logged_in'] = true;
             header('Location: ' . $this->currentUrlWithout('qsj_not_logged_in'));
             exit;
@@ -230,6 +238,13 @@ class QsjAuth
         return isset($_SESSION['_qsj_user'], $_SESSION['_qsj_expires'])
             && is_int($_SESSION['_qsj_expires'])
             && $_SESSION['_qsj_expires'] > time();
+    }
+
+    private function hasRecentLocalSession(): bool
+    {
+        return isset($_SESSION['_qsj_user'], $_SESSION['_qsj_expires'])
+            && is_int($_SESSION['_qsj_expires'])
+            && $_SESSION['_qsj_expires'] > time() - $this->localSessionTtl;
     }
 
     private function storeLocalSession(array $user): bool

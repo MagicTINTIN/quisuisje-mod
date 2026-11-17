@@ -97,6 +97,8 @@ they are re-authenticated transparently with no login prompt.
 - Logout calls `qsj.magictintin.fr/logout.php`, which destroys the remember-me cookie/token.
   Local sessions on other sites will expire naturally within their TTL window.
   Set a short TTL (e.g. 300 s) if near-instant cross-site logout is important.
+- Form submissions (non-GET) are never bounced through QSJ, since the POST body would be
+  lost: a local session that expired less than one TTL ago is still accepted for them.
 
 ## Sessions
 
